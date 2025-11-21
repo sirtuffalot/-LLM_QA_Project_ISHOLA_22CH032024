@@ -1,0 +1,14 @@
+Python
+
+pycache/
+*.pyc
+venv/
+.env
+
+Flask/Web
+
+/templates/pycache/
+
+Dependencies
+
+/node_modules/
