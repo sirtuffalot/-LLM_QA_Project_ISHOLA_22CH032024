@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Q&A System</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4">
+
+    <!-- Main Container -->
+    <div class="w-full max-w-4xl bg-white shadow-xl rounded-2xl p-6 md:p-10 mt-8">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
+            CSC415/331 LLM Question-and-Answering System
+        </h1>
+        <p class="text-center text-sm text-gray-500 mb-8">
+            Powered by the Gemini API with Google Search Grounding.
+        </p>
+
+        <!-- Question Input Form -->
+        <div class="mb-8">
+            <label for="question-input" class="block text-lg font-medium text-gray-700 mb-2">
+                Enter your question:
+            </label>
+            <textarea id="question-input"
+                      rows="3"
+                      placeholder="e.g., What were the key findings of Google's latest quarterly earnings report?"
+                      class="w-full p-4 border-2 border-indigo-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out resize-none shadow-sm"></textarea>
+            <div class="mt-4 flex justify-center">
+                <button id="submit-button"
+                        class="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:bg-indigo-700 transition duration-300 ease-in-out shadow-lg shadow-indigo-300 transform hover:scale-[1.01] disabled:opacity-50">
+                    Get Answer
+                </button>
+            </div>
+        </div>
+
+        <!-- Preprocessed Question & Status Area -->
+        <div id="status-area" class="mb-6 p-4 bg-indigo-50 border-l-4 border-indigo-400 rounded-lg">
+            <p class="text-sm text-indigo-700 font-medium">Status: Ready to receive question.</p>
+        </div>
+
+        <!-- LLM Response Area -->
+        <div class="bg-gray-50 p-6 rounded-xl shadow-inner">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">
+                LLM Response
+            </h2>
+            <div id="llm-response" class="min-h-[100px] text-gray-700 whitespace-pre-wrap">
+                The answer will appear here once you submit a question.
+            </div>
+
+            <!-- Sources Area -->
+            <div id="sources-area" class="mt-6 pt-4 border-t border-gray-200 hidden">
+                <h3 class="text-base font-semibold text-gray-600 mb-2">Sources (Grounding Metadata)</h3>
+                <ul id="source-list" class="space-y-2 text-sm text-gray-500">
+                    <!-- Sources will be injected here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const inputElement = document.getElementById('question-input');
+            const submitButton = document.getElementById('submit-button');
+            const statusArea = document.getElementById('status-area');
+            const llmResponse = document.getElementById('llm-response');
+            const sourcesArea = document.getElementById('sources-area');
+            const sourceList = document.getElementById('source-list');
+
+            const API_ENDPOINT = '/ask';
+
+            // Basic Preprocessing Function (same logic as CLI)
+            function preprocessQuestion(question) {
+                let text = question.toLowerCase();
+                // Remove punctuation (keeping letters, numbers, and spaces)
+                text = text.replace(/[^\w\s]/g, '');
+                // Simple tokenization by splitting and joining
+                let tokens = text.split(/\s+/).filter(t => t.length > 0);
+                return tokens.join(' ');
+            }
+
+            // Function to update the status area
+            function updateStatus(message, isError = false) {
+                statusArea.innerHTML = `<p class="text-sm font-medium ${isError ? 'text-red-700 border-red-400' : 'text-indigo-700 border-indigo-400'}">${message}</p>`;
+                if (isError) {
+                    statusArea.classList.remove('bg-indigo-50', 'border-indigo-400');
+                    statusArea.classList.add('bg-red-50', 'border-red-400');
+                } else {
+                    statusArea.classList.remove('bg-red-50', 'border-red-400');
+                    statusArea.classList.add('bg-indigo-50', 'border-indigo-400');
+                }
+            }
+
+            async function handleSubmission() {
+                const rawQuestion = inputElement.value.trim();
+
+                if (!rawQuestion) {
+                    updateStatus("Please enter a question before submitting.", true);
+                    return;
+                }
+
+                submitButton.disabled = true;
+                submitButton.textContent = 'Processing...';
+                llmResponse.textContent = 'Awaiting response from LLM...';
+                sourcesArea.classList.add('hidden');
+                sourceList.innerHTML = '';
+
+                const processedQuestion = preprocessQuestion(rawQuestion);
+                updateStatus(`Processed Question: ${processedQuestion}`);
+
+                try {
+                    const response = await fetch(API_ENDPOINT, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ question: rawQuestion })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        updateStatus(`Server Error: ${data.answer || 'Unknown error occurred.'}`, true);
+                        llmResponse.textContent = data.answer || 'Could not fetch a valid response.';
+                        return;
+                    }
+
+                    // Display LLM Answer
+                    llmResponse.textContent = data.answer || "No answer received.";
+
+                    // Display Sources
+                    if (data.sources && data.sources.length > 0) {
+                        data.sources.forEach(source => {
+                            const listItem = document.createElement('li');
+                            listItem.innerHTML = `<a href="${source.uri}" target="_blank" class="text-indigo-600 hover:text-indigo-800 hover:underline transition duration-150">${source.title}</a>`;
+                            sourceList.appendChild(listItem);
+                        });
+                        sourcesArea.classList.remove('hidden');
+                    } else {
+                        sourcesArea.classList.add('hidden');
+                    }
+
+                    updateStatus('Status: Q&A completed successfully.', false);
+
+                } catch (error) {
+                    console.error('Fetch Error:', error);
+                    updateStatus(`Network Error: Failed to connect to the server. ${error.message}`, true);
+                    llmResponse.textContent = 'A critical error occurred while sending the request.';
+                } finally {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Get Answer';
+                }
+            }
+
+            submitButton.addEventListener('click', handleSubmission);
+
+            // Optional: Allow pressing Enter to submit
+            inputElement.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmission();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
